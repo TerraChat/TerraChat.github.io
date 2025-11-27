@@ -1,12 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="<!DOCTYPE html>
-<html lang="en">
-  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TerraChat - P2P</title>
+    <title>FlowChat | P2P Encrypted</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -34,68 +31,104 @@
         theme: {
           extend: {
             colors: {
-              chat: { bg: '#0f172a', sidebar: '#1e293b', input: '#334155', bubble: '#334155', bubbleUser: '#4f46e5' }
+              fc: { // FlowChat custom modern colors
+                bg: '#1f2937', // Dark Slate Gray
+                sidebar: '#111827', // Even darker for sidebar/cards
+                input: '#374151', // Dark Gray for input/bubbles
+                primary: '#2563eb', // Vibrant Blue (Main CTA/User bubble)
+                accent: '#10b981', // Neon Green (Secondary accent/Status)
+                bubble: '#374151', // Other user bubble
+                bubbleUser: '#2563eb', // My bubble (Vibrant Blue)
+                system: '#9ca3af', // Light Gray (System messages/subtle text)
+              }
             },
-            animation: { 'fade-in': 'fadeIn 0.3s ease-out' },
+            animation: { 'fade-in': 'fadeIn 0.3s ease-out', 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' },
             keyframes: { fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } } }
           }
         }
       }
     </script>
     <style>
-      body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; }
+      /* Updated body style for dark theme */
+      body { font-family: 'Inter', sans-serif; background: #1f2937; color: #f3f4f6; /* Light text for contrast */ }
       .custom-scroll::-webkit-scrollbar { width: 6px; }
-      .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+      .custom-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+      .emoji-picker-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 4px;
+      }
     </style>
   </head>
   <body>
     <div id="root" class="h-screen w-full flex flex-col"></div>
 
     <script type="text/babel" data-type="module">
-      import React, { useState, useEffect, useRef } from "react";
+      import React, { useState, useEffect, useRef, useCallback } from "react";
       import { createRoot } from "react-dom/client";
       import { GoogleGenerativeAI } from "@google/generative-ai";
       import { joinRoom } from "trystero/torrent";
 
       // --- 1. CONFIGURATION ---
-      // No Database Config needed! Using P2P.
       const GEMINI_API_KEY = "AIzaSyCO3vw58VDZyHaIQ9yOMni5fepndQ29zJ4"; 
-      const APP_ID = 'terrachat-live-v1'; // Keeps rooms separate from other apps
+      const APP_ID = 'flowchat-p2p-v5'; // Modern branding ID
+      const PING_INTERVAL = 3000; // 3 seconds for typing indicator
+      const TYPING_TIMEOUT = 5000; // 5 seconds before clearing typing status
+
+      const EMOJIS = ['👋', '👍', '❤️', '😂', '🔥', '💡', '🤔', '🎉', '🚀', '⭐', '💻', '🍕', '☕', '🥳'];
 
       // --- 2. SERVICES ---
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+      // Exponential Backoff for AI API calls
+      const callApiWithRetry = async (prompt, retries = 3) => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            const result = await model.generateContent(prompt);
+            return result.response.text().trim();
+          } catch (error) {
+            if (i === retries - 1) throw error;
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+          }
+        }
+      };
+
+      // Helper function to format timestamp
+      const formatTime = (timestamp) => {
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      };
+
       // --- 3. COMPONENTS ---
 
       // A. Landing Page
-      const LandingPage = ({ onJoin }) => {
+      const LandingPage = ({ onJoin, initialRoom }) => {
         const [name, setName] = useState("");
-        const [room, setRoom] = useState("");
+        const [room, setRoom] = useState(initialRoom || "");
 
         return (
-          <div className="flex flex-col items-center justify-center h-full bg-gradient-to-br from-slate-900 to-indigo-950 p-4">
-            <div className="w-full max-w-md bg-chat-sidebar p-8 rounded-2xl shadow-2xl border border-slate-700">
+          <div className="flex flex-col items-center justify-center h-full bg-fc-bg p-4">
+            <div className="w-full max-w-md bg-fc-sidebar p-10 rounded-3xl shadow-2xl border border-gray-700">
               <div className="text-center mb-8">
-                <i className="fas fa-network-wired text-4xl text-indigo-500 mb-4"></i>
-                <h1 className="text-3xl font-bold text-white">TerraChat P2P</h1>
-                <p className="text-slate-400">Serverless. Real People. No Setup.</p>
+                <i className="fas fa-satellite-dish text-5xl text-fc-primary mb-4 animate-pulse-slow"></i>
+                <h1 className="text-4xl font-extrabold text-white tracking-wide">FlowChat</h1>
+                <p className="text-fc-system mt-2 text-sm uppercase font-medium tracking-wider">Decentralized | Instant | Encrypted</p>
               </div>
-              <form onSubmit={(e) => { e.preventDefault(); if(name && room) onJoin(name, room); }} className="space-y-4">
+              <form onSubmit={(e) => { e.preventDefault(); if(name && room) onJoin(name, room); }} className="space-y-6">
                 <input 
-                  className="w-full bg-chat-input text-white border border-slate-600 rounded-lg py-3 px-4 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                  placeholder="Your Nickname" 
+                  className="w-full bg-fc-input text-white border border-gray-600 rounded-xl py-3 px-5 shadow-inner shadow-black/20 focus:ring-2 focus:ring-fc-primary outline-none transition duration-200 placeholder-gray-400" 
+                  placeholder="Your Handle (e.g. JohnD2024)" 
                   value={name} onChange={e => setName(e.target.value)} required 
                 />
                 <div className="flex gap-2">
                   <input 
-                    className="w-full bg-chat-input text-white border border-slate-600 rounded-lg py-3 px-4 focus:ring-2 focus:ring-indigo-500 outline-none uppercase" 
-                    placeholder="Room Code (e.g. LOBBY)" 
+                    className="w-full bg-fc-input text-white border border-gray-600 rounded-xl py-3 px-5 shadow-inner shadow-black/20 focus:ring-2 focus:ring-fc-primary outline-none uppercase transition duration-200 placeholder-gray-400" 
+                    placeholder="Room ID (e.g. PROJECT-ALPHA)" 
                     value={room} onChange={e => setRoom(e.target.value.toUpperCase())} required 
                   />
                 </div>
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg shadow-lg transition transform active:scale-95">
-                  Join P2P Network
+                <button type="submit" className="w-full bg-fc-primary hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-fc-primary/50 transition transform active:scale-[0.98] duration-150">
+                  <i className="fas fa-network-wired mr-2"></i> Initiate Connection
                 </button>
               </form>
             </div>
@@ -108,11 +141,15 @@
         const [messages, setMessages] = useState([]);
         const [input, setInput] = useState("");
         const [peers, setPeers] = useState({}); // Map peerId -> name
+        const [typingUsers, setTypingUsers] = useState({}); // Map peerId -> timeoutId
         const [aiLoading, setAiLoading] = useState(false);
-        const [status, setStatus] = useState("Connecting to peers...");
+        const [status, setStatus] = useState("Establishing P2P link...");
+        const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+        const [copied, setCopied] = useState(false);
         
         const roomRef = useRef(null);
         const scrollRef = useRef(null);
+        const typingTimeoutRef = useRef(null);
 
         // --- P2P Connection Setup ---
         useEffect(() => {
@@ -124,168 +161,408 @@
           // 2. Define Actions
           const [sendChat, getChat] = room.makeAction('chat');
           const [sendName, getName] = room.makeAction('name');
+          const [sendTyping, getTyping] = room.makeAction('typing');
+          const [sendDelete, getDelete] = room.makeAction('delete');
 
           // 3. Handle Incoming Messages
-          getChat((data, peerId) => {
+          getChat((data) => {
             setMessages(prev => [...prev, { ...data, isMe: false, timestamp: Date.now() }]);
           });
 
           // 4. Handle Name Syncing (Since P2P doesn't have profiles)
           getName((name, peerId) => {
+            if (name !== peers[peerId]) {
+              setMessages(prev => [...prev, { id: Date.now() + Math.random(), text: `[${name}] connected.`, sender: 'System', isSystem: true, timestamp: Date.now() }]);
+            }
             setPeers(prev => ({ ...prev, [peerId]: name }));
           });
 
-          // 5. Handle Peer Events
+          // 5. Handle Typing Status
+          getTyping((data, peerId) => {
+            const { isTyping } = data;
+            const peerName = peers[peerId] || 'Unknown User';
+
+            setTypingUsers(prev => {
+              // Clear previous timeout if exists
+              if (prev[peerName]) clearTimeout(prev[peerName]);
+
+              if (isTyping) {
+                // Set a new timeout to clear the typing status after TYPING_TIMEOUT
+                const timeoutId = setTimeout(() => {
+                  setTypingUsers(current => {
+                    const next = { ...current };
+                    delete next[peerName];
+                    return next;
+                  });
+                }, TYPING_TIMEOUT);
+                return { ...prev, [peerName]: timeoutId };
+              } else {
+                // Typing stopped explicitly
+                const next = { ...prev };
+                delete next[peerName];
+                return next;
+              }
+            });
+          });
+
+          // 6. Handle Message Deletion
+          getDelete((data) => {
+             setMessages(prev => prev.filter(msg => msg.id !== data.id));
+          });
+
+
+          // 7. Handle Peer Events
           room.onPeerJoin(peerId => {
-            console.log("Peer joined:", peerId);
-            setStatus("Connected");
-            // Send my name to the new person
-            sendName(nickname);
+            setStatus("Link Active: Encrypted.");
+            sendName(nickname); // Send my name to the new person
           });
 
           room.onPeerLeave(peerId => {
-            console.log("Peer left:", peerId);
+            const peerName = peers[peerId] || 'A peer';
+            setMessages(prev => [...prev, { id: Date.now() + Math.random(), text: `[${peerName}] disconnected.`, sender: 'System', isSystem: true, timestamp: Date.now() }]);
             setPeers(prev => {
               const newPeers = { ...prev };
               delete newPeers[peerId];
               return newPeers;
             });
+            setTypingUsers(prev => {
+                const newTyping = {...prev};
+                delete newTyping[peerName];
+                return newTyping;
+            });
           });
 
-          // 6. Broadcast my name immediately to anyone already there
+          // 8. Broadcast my name immediately
           sendName(nickname);
 
           // Add Welcome Message
           setMessages([{ 
             id: 'sys-welcome', 
-            text: `Joined channel "${roomCode}". Waiting for others...`, 
+            text: `[SYSTEM] Session initiated for Room: ${roomCode}. All messages are P2P encrypted.`, 
             sender: 'System', 
-            isMe: false, 
-            isSystem: true 
+            isSystem: true, 
+            timestamp: Date.now() 
           }]);
 
           return () => {
             room.leave();
+            // Clear any lingering timeouts
+            Object.values(typingUsers).forEach(clearTimeout);
+            clearTimeout(typingTimeoutRef.current);
           };
         }, [roomCode, nickname]);
 
         // Auto-scroll
         useEffect(() => {
           if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }, [messages]);
+        }, [messages, typingUsers]);
+        
+        // Function to send typing status
+        const sendTypingStatus = (isTyping) => {
+            if (roomRef.current) {
+                const [sendTyping] = roomRef.current.makeAction('typing');
+                sendTyping({ isTyping });
+            }
+        };
+
+        const handleTyping = (e) => {
+            const newValue = e.target.value;
+            setInput(newValue);
+            
+            // Debounce sending typing status
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+            if (newValue.length > 0) {
+                sendTypingStatus(true);
+                // Set a timeout to clear the typing status after a delay if the user stops typing
+                typingTimeoutRef.current = setTimeout(() => {
+                    sendTypingStatus(false);
+                }, PING_INTERVAL);
+            } else {
+                sendTypingStatus(false);
+            }
+        };
+
 
         const handleSendMessage = (e) => {
           e.preventDefault();
           if (!input.trim() || !roomRef.current) return;
 
+          const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
           const msgData = {
-            id: Math.random().toString(36),
+            id: id,
             text: input,
             sender: nickname,
+            timestamp: Date.now(),
           };
 
-          // Send to peers
+          // 1. Send to peers
           const [sendChat] = roomRef.current.makeAction('chat');
           sendChat(msgData);
 
-          // Add to local view
-          setMessages(prev => [...prev, { ...msgData, isMe: true, timestamp: Date.now() }]);
+          // 2. Add to local view
+          setMessages(prev => [...prev, { ...msgData, isMe: true }]);
           setInput("");
+          sendTypingStatus(false); // Clear typing status immediately after sending
+        };
+        
+        const deleteMessage = (id) => {
+            // P2P deletion is primarily local but we can signal peers to delete too.
+            const [sendDelete] = roomRef.current.makeAction('delete');
+            sendDelete({ id });
+            setMessages(prev => prev.filter(msg => msg.id !== id));
+        };
+        
+        const copyRoomLink = () => {
+            const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+            // Use execCommand for better iframe compatibility
+            const tempInput = document.createElement('textarea');
+            tempInput.value = url;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        };
+        
+        const copyMessageText = (text) => {
+            // Use execCommand for better iframe compatibility
+            const tempInput = document.createElement('textarea');
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            console.log('Message copied to clipboard.');
         };
 
-        const fixGrammar = async () => {
+        // --- AI Tools ---
+        const handleTranslate = async () => {
           if (!input.trim()) return;
           setAiLoading(true);
           try {
-            const result = await model.generateContent(`Fix the grammar and make this text sound natural, return ONLY the fixed text: "${input}"`);
-            setInput(result.response.text().trim());
+            const prompt = `Translate this text for a secure chat application. If it's English, translate it to German. If it's anything else, translate it to English. Provide only the translated phrase: "${input}"`;
+            const fixedText = await callApiWithRetry(prompt);
+            setInput(fixedText);
           } catch (e) {
             console.error(e);
-            alert("AI Tool Error");
+            // Replace alert with an in-app message (or console log)
+            setMessages(prev => [...prev, { id: Date.now(), text: 'ERROR: AI Translation link failed.', sender: 'System', isSystem: true, timestamp: Date.now() }]);
           } finally {
             setAiLoading(false);
           }
         };
 
+        const handleSummarize = async () => {
+          if (messages.length === 0) return;
+          setAiLoading(true);
+          
+          // Get the last 10 non-system messages
+          const chatHistory = messages
+            .filter(msg => !msg.isSystem)
+            .slice(-10)
+            .map(msg => `${msg.sender}: ${msg.text}`)
+            .join('\n');
+
+          try {
+            const prompt = `Provide a concise, professional summary of the last 10 chat messages for a project update. Start the summary with "[SUMMARY]:". Here is the chat history:\n\n${chatHistory}`;
+            const summary = await callApiWithRetry(prompt);
+            
+            // Add summary as a system message
+            setMessages(prev => [...prev, { 
+                id: Date.now() + Math.random(), 
+                text: summary, // The prompt includes [SUMMARY]:
+                sender: 'AI Assistant', 
+                isSystem: true, 
+                timestamp: Date.now() 
+            }]);
+          } catch (e) {
+            console.error(e);
+            // Replace alert with an in-app message
+            setMessages(prev => [...prev, { id: Date.now(), text: 'ERROR: AI Summarization link failed.', sender: 'System', isSystem: true, timestamp: Date.now() }]);
+          } finally {
+            setAiLoading(false);
+          }
+        };
+        
+        const handleEmojiClick = (emoji) => {
+            setInput(prev => prev + emoji);
+            setShowEmojiPicker(false);
+        };
+        
+        const typingNames = Object.keys(typingUsers).filter(name => name !== nickname).map(id => peers[id] || 'Unknown').join(', ');
+        const isTypingActive = typingNames.length > 0;
+
+
         return (
-          <div className="flex h-screen bg-chat-bg">
+          <div className="flex h-screen bg-fc-bg text-white">
             {/* Sidebar */}
-            <div className="hidden md:flex w-64 bg-chat-sidebar flex-col border-r border-slate-700">
-              <div className="p-4 border-b border-slate-700 font-bold text-lg text-indigo-400">TerraChat P2P</div>
+            <div className="hidden md:flex w-64 bg-fc-sidebar flex-col border-r border-gray-700 shadow-xl">
+              <div className="p-4 border-b border-gray-700 font-bold text-xl text-fc-primary flex justify-between items-center">
+                 <span className="flex items-center gap-2"><i className="fas fa-satellite-dish"></i> FlowChat</span>
+                 {copied ? (
+                     <span className="text-xs text-fc-accent"><i className="fas fa-check"></i> Copied</span>
+                 ) : (
+                    <button onClick={copyRoomLink} className="text-fc-system hover:text-fc-primary text-sm transition" title="Copy Invite Link">
+                        <i className="fas fa-link"></i>
+                    </button>
+                 )}
+              </div>
               <div className="p-4 flex-1">
-                <div className="text-xs text-slate-500 uppercase mb-2">Room Code</div>
-                <div className="text-xl font-mono text-white mb-6">#{roomCode}</div>
+                <div className="text-xs text-fc-system uppercase mb-2 font-semibold tracking-wider">Room Identifier</div>
+                <div className="text-xl font-mono text-fc-accent bg-fc-input p-2 rounded-lg break-words mb-6 border border-gray-600 shadow-inner">#{roomCode}</div>
                 
-                <div className="text-xs text-slate-500 uppercase mb-2">Peers Online ({Object.keys(peers).length})</div>
+                <div className="text-xs text-fc-system uppercase mb-2 font-semibold tracking-wider">Active Peers ({Object.keys(peers).length + 1})</div>
                 <ul className="space-y-2 mb-6">
+                  {/* Local User */}
+                  <li className="text-sm text-fc-primary font-bold flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 bg-fc-primary rounded-full shadow-lg shadow-fc-primary/50 animate-pulse"></span> {nickname} (Local)
+                  </li>
+                  {/* Remote Peers */}
                   {Object.values(peers).map((p, i) => (
-                    <li key={i} className="text-sm text-slate-300 flex items-center gap-2">
-                       <span className="w-2 h-2 bg-green-500 rounded-full"></span> {p}
+                    <li key={i} className="text-sm text-gray-300 flex items-center gap-2">
+                       <span className="w-2.5 h-2.5 bg-fc-accent rounded-full shadow-lg shadow-fc-accent/50"></span> {p}
                     </li>
                   ))}
-                  {Object.keys(peers).length === 0 && <li className="text-sm text-slate-600 italic">No one else here...</li>}
+                  {Object.keys(peers).length === 0 && <li className="text-sm text-fc-system italic mt-2">Waiting for connection...</li>}
                 </ul>
-
-                <div className="text-xs text-slate-500 uppercase mb-2">You</div>
-                <div className="text-sm text-slate-300 truncate font-bold">{nickname}</div>
               </div>
-              <div className="p-4 border-t border-slate-700">
-                <button onClick={onLeave} className="text-slate-400 hover:text-white flex items-center gap-2"><i className="fas fa-sign-out-alt"></i> Leave</button>
+              <div className="p-4 border-t border-gray-700">
+                <button onClick={onLeave} className="text-fc-system hover:text-red-500 transition flex items-center gap-2 font-medium"><i className="fas fa-sign-out-alt"></i> Disconnect</button>
               </div>
             </div>
 
             {/* Main Chat */}
             <div className="flex-1 flex flex-col min-w-0">
               {/* Header */}
-              <div className="h-14 border-b border-slate-700 flex items-center justify-between px-4 bg-chat-sidebar md:bg-transparent">
+              <div className="h-14 border-b border-gray-700 flex items-center justify-between px-4 bg-fc-sidebar md:bg-transparent">
                 <div className="flex items-center gap-2">
-                  <button onClick={onLeave} className="md:hidden text-slate-400"><i className="fas fa-arrow-left"></i></button>
-                  <span className="font-bold text-white">#{roomCode}</span>
+                  <button onClick={onLeave} className="md:hidden text-fc-system hover:text-fc-primary"><i className="fas fa-arrow-left"></i></button>
+                  <span className="font-bold text-white text-lg">#{roomCode}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                   <div className={`w-2 h-2 rounded-full ${Object.keys(peers).length > 0 ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`}></div>
-                   <span className="text-xs text-slate-500 hidden sm:inline">{Object.keys(peers).length > 0 ? 'Active Connection' : status}</span>
+                   <div className={`w-3 h-3 rounded-full ${Object.keys(peers).length > 0 ? 'bg-fc-accent shadow-md shadow-fc-accent/50' : 'bg-fc-primary animate-pulse'}`}></div>
+                   <span className="text-xs text-fc-system hidden sm:inline">{Object.keys(peers).length > 0 ? 'STATUS: Secure P2P' : status}</span>
                 </div>
               </div>
 
               {/* Messages List */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scroll" ref={scrollRef}>
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                     {msg.isSystem ? (
-                        <div className="w-full text-center text-xs text-slate-500 my-2">{msg.text}</div>
-                     ) : (
-                        <div className={`max-w-[80%] md:max-w-[60%]`}>
-                          {!msg.isMe && <div className="text-xs text-slate-400 ml-1 mb-1">{msg.sender}</div>}
-                          <div className={`px-4 py-2 rounded-2xl break-words text-sm ${msg.isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-200 rounded-bl-none'}`}>
-                            {msg.text}
-                          </div>
+                {messages.length === 0 && (
+                   <div className="text-center text-fc-system mt-10">Start a conversation. All messages are ephemeral and routed P2P.</div>
+                )}
+                {messages.map((msg) => {
+                  const isMe = msg.isMe;
+                  const isSystem = msg.isSystem;
+                  
+                  if (isSystem) {
+                    return <div key={msg.id} className="w-full text-center text-xs text-fc-system italic my-3 animate-fade-in font-mono border-y border-gray-700 py-1">{msg.text}</div>;
+                  }
+
+                  return (
+                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} animate-fade-in group`}>
+                      <div className={`max-w-[85%] md:max-w-[60%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                        {/* Sender Name (only for others) */}
+                        {!isMe && <div className="text-xs text-fc-system ml-2 mb-1 font-semibold">{msg.sender}</div>}
+                        
+                        {/* Message Bubble */}
+                        <div className={`rounded-2xl break-words text-sm relative group`}
+                             title={`Sent at ${formatTime(msg.timestamp)}`}>
+                            
+                            <div className={`inline-block px-4 py-2 rounded-2xl transition duration-100 shadow-md ${
+                                isMe ? 'bg-fc-primary text-white rounded-br-sm shadow-fc-primary/30' : 'bg-fc-bubble text-white rounded-bl-sm shadow-black/20'
+                            }`}>
+                                {msg.text}
+                            </div>
+
+                            {/* Context Menu (Hidden until hover) */}
+                            <div className={`absolute top-0 flex gap-1 transition-opacity duration-300 opacity-0 group-hover:opacity-100 ${isMe ? '-left-8' : '-right-8'}`}>
+                                {/* Copy Button */}
+                                <button 
+                                    onClick={() => copyMessageText(msg.text)} 
+                                    className="text-xs text-fc-system hover:text-fc-accent p-1 transition"
+                                    title="Copy Text"
+                                >
+                                    <i className="fas fa-copy"></i>
+                                </button>
+                                {/* Delete Button (Only for own messages) */}
+                                {isMe && (
+                                    <button 
+                                        onClick={() => deleteMessage(msg.id)} 
+                                        className="text-xs text-red-500 hover:text-red-400 p-1 transition"
+                                        title="Delete Message (Local Only)"
+                                    >
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                )}
+                            </div>
                         </div>
-                     )}
-                  </div>
-                ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {/* Typing Indicator */}
+                {isTypingActive && (
+                    <div className="flex justify-start pt-2 animate-fade-in">
+                        <div className="max-w-[60%] bg-fc-input text-fc-system rounded-2xl px-4 py-2 text-sm italic shadow-inner">
+                            <i className="fas fa-circle-notch animate-spin mr-1 text-fc-accent"></i> {typingNames} {Object.keys(typingUsers).length > 1 ? 'are' : 'is'} typing...
+                        </div>
+                    </div>
+                )}
               </div>
 
               {/* Input Area */}
-              <div className="p-4 bg-chat-bg border-t border-slate-700">
-                <form onSubmit={handleSendMessage} className="flex flex-col gap-2 max-w-4xl mx-auto">
-                   {input.trim() && (
-                    <div className="flex gap-2">
-                       <button type="button" onClick={fixGrammar} disabled={aiLoading} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
-                         <i className={`fas fa-magic ${aiLoading ? 'animate-spin' : ''}`}></i> AI Fix
-                       </button>
+              <div className="p-4 bg-fc-bg border-t border-gray-700 relative shadow-inner shadow-black/30">
+                 {/* Emoji Picker Modal */}
+                 {showEmojiPicker && (
+                    <div className="absolute bottom-full mb-3 bg-fc-sidebar p-4 rounded-xl shadow-2xl border border-gray-700 w-full max-w-sm right-0 left-0 mx-auto">
+                        <div className="emoji-picker-grid">
+                            {EMOJIS.map(emoji => (
+                                <button 
+                                    key={emoji} 
+                                    className="text-2xl hover:bg-fc-input rounded-lg p-1 transition transform hover:scale-110" 
+                                    onClick={() => handleEmojiClick(emoji)}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 bg-chat-input rounded-xl p-2 border border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500/50">
+                 )}
+                
+                <form onSubmit={handleSendMessage} className="flex flex-col gap-2 max-w-4xl mx-auto">
+                   {/* AI/Utility Tools Bar */}
+                    <div className="flex gap-4">
+                       <button type="button" onClick={handleTranslate} disabled={aiLoading || !input.trim()} className="text-xs text-fc-accent hover:text-fc-primary flex items-center gap-1 transition disabled:opacity-50 font-medium">
+                         <i className={`fas fa-language ${aiLoading ? 'animate-spin' : ''}`}></i> {aiLoading ? 'PROCESSING' : 'TRANSLATE'}
+                       </button>
+                       <button type="button" onClick={handleSummarize} disabled={aiLoading || messages.length === 0} className="text-xs text-fc-accent hover:text-fc-primary flex items-center gap-1 transition disabled:opacity-50 font-medium">
+                         <i className={`fas fa-microchip ${aiLoading ? 'animate-spin' : ''}`}></i> {aiLoading ? 'PROCESSING' : 'SUMMARY'}
+                       </button>
+                       {aiLoading && <span className="text-xs text-fc-accent font-semibold">AI is processing...</span>}
+                    </div>
+
+                  <div className="flex items-center gap-2 bg-fc-sidebar rounded-2xl p-2 border border-gray-700 focus-within:ring-2 focus-within:ring-fc-accent/50 shadow-lg shadow-black/20">
+                    <button 
+                        type="button" 
+                        onClick={() => setShowEmojiPicker(prev => !prev)} 
+                        className="text-xl text-fc-system hover:text-fc-accent p-2 rounded-full transition"
+                        title="Open Emoji Selector"
+                    >
+                        <i className="fas fa-face-smile"></i>
+                    </button>
                     <input 
-                      className="flex-1 bg-transparent text-white px-3 py-2 outline-none placeholder-slate-400" 
-                      placeholder="Type a message..." 
+                      className="flex-1 bg-transparent text-white px-3 py-2 outline-none placeholder-gray-500" 
+                      placeholder="Send encrypted message..." 
                       value={input} 
-                      onChange={e => setInput(e.target.value)}
+                      onChange={handleTyping}
                       autoFocus
                     />
-                    <button type="submit" disabled={!input.trim()} className="bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-lg w-10 h-10 flex items-center justify-center transition disabled:opacity-50">
-                      <i className="fas fa-paper-plane"></i>
+                    <button type="submit" disabled={!input.trim()} className="bg-fc-primary hover:bg-blue-600 text-white p-3 rounded-xl w-12 h-12 flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-fc-primary/40">
+                      <i className="fas fa-paper-plane text-lg"></i>
                     </button>
                   </div>
                 </form>
@@ -299,21 +576,45 @@
       const App = () => {
         const [view, setView] = useState("landing");
         const [userData, setUserData] = useState({ name: "", room: "" });
+        const [initialRoom, setInitialRoom] = useState("");
+        
+        // Check URL for room code on initial load
+        useEffect(() => {
+          const params = new URLSearchParams(window.location.search);
+          const roomParam = params.get("room");
+          if (roomParam) {
+            setInitialRoom(roomParam);
+          }
+        }, []);
 
         const handleJoin = (name, room) => {
           setUserData({ name, room });
           setView("chat");
+          
+          // Update URL for sharing
+          const url = new URL(window.location.href);
+          url.searchParams.set("room", room);
+          window.history.pushState({}, "", url);
+        };
+        
+        const handleLeave = () => {
+          setView("landing");
+          setUserData({ name: "", room: "" });
+          // Clean up URL
+          const url = new URL(window.location.href);
+          url.searchParams.delete("room");
+          window.history.pushState({}, "", url);
         };
 
         return (
           <React.StrictMode>
             {view === "landing" ? (
-              <LandingPage onJoin={handleJoin} />
+              <LandingPage onJoin={handleJoin} initialRoom={initialRoom} />
             ) : (
               <ChatRoom 
                 nickname={userData.name} 
                 roomCode={userData.room} 
-                onLeave={() => setView("landing")} 
+                onLeave={handleLeave} 
               />
             )}
           </React.StrictMode>
